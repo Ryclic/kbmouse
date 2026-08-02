@@ -58,6 +58,7 @@ pub struct Engine {
     selected_cell: Option<Rect>,
     typed: String,
     dragging: bool,
+    momentary_click_down: bool,
     leader_started: Option<Instant>,
     leader_chord_used: bool,
     transient_normal: bool,
@@ -112,6 +113,7 @@ impl Engine {
             selected_cell: None,
             typed: String::new(),
             dragging: false,
+            momentary_click_down: false,
             leader_started: None,
             leader_chord_used: false,
             transient_normal: false,
@@ -164,6 +166,16 @@ impl Engine {
                 Mode::Hint => self.cancel(),
                 Mode::Normal => self.activate(),
             };
+        }
+        if self.mode == Mode::Normal
+            && self.transient_normal
+            && self.config.hold_click_to_drag
+            && key == self.config.keys.left_click
+        {
+            if pressed {
+                self.leader_chord_used = true;
+            }
+            return self.momentary_click(pressed);
         }
         if self.mode == Mode::Normal
             && let Some(direction) = self.direction_for_key(&key)
@@ -295,6 +307,14 @@ impl Engine {
         } else {
             self.config.move_step
         }
+    }
+
+    fn momentary_click(&mut self, pressed: bool) -> Action {
+        if self.momentary_click_down == pressed {
+            return Action::None;
+        }
+        self.momentary_click_down = pressed;
+        Action::Button(MouseButton::Left, pressed)
     }
 
     fn handle_dual_leader(&mut self, pressed: bool) -> Action {
@@ -437,8 +457,10 @@ impl Engine {
         self.leader_chord_used = false;
         self.typed.clear();
         self.hint_bounds = self.screen;
-        if self.dragging {
-            self.dragging = false;
+        let release_button = self.dragging || self.momentary_click_down;
+        self.dragging = false;
+        self.momentary_click_down = false;
+        if release_button {
             Action::Batch(vec![Action::Button(MouseButton::Left, false), Action::Hide])
         } else {
             Action::Hide
@@ -705,5 +727,33 @@ mod tests {
         engine.handle_key("a", true);
         engine.handle_key("a", true);
         assert_eq!(engine.handle_key("h", true), Action::MoveBy(-13, 0));
+    }
+
+    #[test]
+    fn held_leader_click_key_is_a_momentary_drag() {
+        let mut engine = engine();
+        engine.handle_key("capslock", true);
+        assert_eq!(
+            engine.handle_key("m", true),
+            Action::Button(MouseButton::Left, true)
+        );
+        assert_eq!(engine.handle_key("h", true), Action::MoveBy(-24, 0));
+        assert_eq!(
+            engine.handle_key("m", false),
+            Action::Button(MouseButton::Left, false)
+        );
+        assert_eq!(engine.handle_key("capslock", false), Action::Hide);
+    }
+
+    #[test]
+    fn releasing_leader_safely_ends_momentary_drag() {
+        let mut engine = engine();
+        engine.handle_key("capslock", true);
+        engine.handle_key("m", true);
+        assert_eq!(
+            engine.handle_key("capslock", false),
+            Action::Batch(vec![Action::Button(MouseButton::Left, false), Action::Hide])
+        );
+        assert_eq!(engine.mode(), Mode::Idle);
     }
 }

@@ -20,6 +20,8 @@ manually exercised on a Windows desktop before a production release.
    - `h`, `j`, `k`, `l`: nudge left, down, up, right; hold one horizontal and
      one vertical key together for diagonal movement
    - `m`, `,`, `.`: left, middle, right click
+   - While holding Caps Lock, hold `m` to keep the left button down for
+     selecting text or dragging; release `m` to drop
    - `v`: begin/end a left-button drag
    - `e`, `d`: scroll up/down
    - `Esc`: return to idle
@@ -122,6 +124,7 @@ label_glow = false
 font_size = 22
 post_hint = "normal"
 exit_on_click = true
+hold_click_to_drag = true
 move_step = 8
 hold_move_step = 24
 smooth_movement = false

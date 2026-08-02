@@ -438,6 +438,15 @@ impl SettingsApp {
             ui.separator();
             setting_row(
                 ui,
+                "Hold click key to drag",
+                "While holding the leader, hold the left-click key to select or drag.",
+                |ui| {
+                    ui.checkbox(&mut self.draft.hold_click_to_drag, "");
+                },
+            );
+            ui.separator();
+            setting_row(
+                ui,
                 "Normal Mode speed",
                 "Pixels moved by each key repeat after selecting a hint.",
                 |ui| {
