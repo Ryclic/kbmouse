@@ -133,6 +133,7 @@ move_step = 8
 hold_move_step = 24
 smooth_movement = false
 magnet_enabled = false
+magnet_avoid_repeat = false
 magnet_radius = 56
 scroll_step = 120
 span_all_monitors = false
@@ -171,6 +172,9 @@ after a direction key is released or a grid jump finishes. The radius is
 adjustable from 16–160 pixels. This experimental feature is disabled by default
 and currently works only on Windows through UI Automation; custom-rendered
 controls that do not expose accessibility information may not be detected.
+Enable **Avoid repeat snap** to prevent the last snapped control from pulling the
+pointer back while you move away. That control becomes eligible again after the
+pointer travels beyond the configured snap radius.
 
 ## Manual beta checklist
 

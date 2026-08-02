@@ -71,6 +71,20 @@ static LEADER_DOWN: AtomicBool = AtomicBool::new(false);
 static LEADER_VK: AtomicU32 = AtomicU32::new(0);
 static HOOK_RUNNING: AtomicBool = AtomicBool::new(false);
 
+#[derive(Clone, Copy)]
+struct MagnetRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+struct MagnetTarget {
+    x: i32,
+    y: i32,
+    bounds: MagnetRect,
+}
+
 pub struct NativeBackend {
     receiver: Receiver<KeyEvent>,
     hook_thread: Option<JoinHandle<()>>,
@@ -88,7 +102,9 @@ pub struct NativeBackend {
     crisp_labels: bool,
     label_glow: bool,
     magnet_enabled: bool,
+    magnet_avoid_repeat: bool,
     magnet_radius: i32,
+    last_magnet_target: Option<MagnetRect>,
     automation: Option<IUIAutomation>,
     com_initialized: bool,
 }
@@ -253,7 +269,9 @@ impl NativeBackend {
             crisp_labels: config.crisp_labels,
             label_glow: config.label_glow,
             magnet_enabled: config.magnet_enabled,
+            magnet_avoid_repeat: config.magnet_avoid_repeat,
             magnet_radius: config.magnet_radius,
+            last_magnet_target: None,
             automation,
             com_initialized,
         })
@@ -473,7 +491,11 @@ impl Backend for NativeBackend {
         self.crisp_labels = config.crisp_labels;
         self.label_glow = config.label_glow;
         self.magnet_enabled = config.magnet_enabled;
+        self.magnet_avoid_repeat = config.magnet_avoid_repeat;
         self.magnet_radius = config.magnet_radius;
+        if !self.magnet_enabled || !self.magnet_avoid_repeat {
+            self.last_magnet_target = None;
+        }
         if unsafe { SetLayeredWindowAttributes(self.window, 0, self.opacity, LWA_ALPHA) } == 0 {
             return Err(last_error("failed to update overlay opacity"));
         }
@@ -570,9 +592,23 @@ impl Backend for NativeBackend {
         if unsafe { GetCursorPos(&mut cursor) } == 0 {
             return Err(last_error("GetCursorPos failed"));
         }
-        if let Some((x, y)) = find_magnet_target(automation, cursor.x, cursor.y, self.magnet_radius)
+        if self.magnet_avoid_repeat
+            && self.last_magnet_target.is_some_and(|bounds| {
+                distance_to_rect_squared(cursor.x, cursor.y, bounds)
+                    > i64::from(self.magnet_radius) * i64::from(self.magnet_radius)
+            })
         {
-            self.move_to(x, y)?;
+            self.last_magnet_target = None;
+        }
+        let excluded = self
+            .magnet_avoid_repeat
+            .then_some(self.last_magnet_target)
+            .flatten();
+        if let Some(target) =
+            find_magnet_target(automation, cursor.x, cursor.y, self.magnet_radius, excluded)
+        {
+            self.move_to(target.x, target.y)?;
+            self.last_magnet_target = self.magnet_avoid_repeat.then_some(target.bounds);
         }
         Ok(())
     }
@@ -636,7 +672,8 @@ fn find_magnet_target(
     cursor_x: i32,
     cursor_y: i32,
     radius: i32,
-) -> Option<(i32, i32)> {
+    excluded: Option<MagnetRect>,
+) -> Option<MagnetTarget> {
     let walker = unsafe { automation.ControlViewWalker().ok()? };
     let step = (radius / 4).clamp(8, 20);
     let mut offsets = vec![0, -radius, radius];
@@ -649,7 +686,7 @@ fn find_magnet_target(
     offsets.dedup();
 
     let radius_squared = i64::from(radius) * i64::from(radius);
-    let mut best: Option<(i64, i32, i32)> = None;
+    let mut best: Option<(i64, MagnetTarget)> = None;
     for &dy in &offsets {
         for &dx in &offsets {
             if i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy) > radius_squared {
@@ -668,6 +705,15 @@ fn find_magnet_target(
             if rect.right <= rect.left || rect.bottom <= rect.top {
                 continue;
             }
+            let bounds = MagnetRect {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+            };
+            if excluded.is_some_and(|excluded| excluded.approximately_matches(bounds)) {
+                continue;
+            }
 
             let nearest_x = cursor_x.clamp(rect.left, rect.right - 1);
             let nearest_y = cursor_y.clamp(rect.top, rect.bottom - 1);
@@ -675,7 +721,9 @@ fn find_magnet_target(
             let distance_y = i64::from(nearest_y - cursor_y);
             let distance_squared = distance_x * distance_x + distance_y * distance_y;
             if distance_squared > radius_squared
-                || best.is_some_and(|(score, _, _)| score <= distance_squared)
+                || best
+                    .as_ref()
+                    .is_some_and(|(score, _)| *score <= distance_squared)
             {
                 continue;
             }
@@ -701,10 +749,34 @@ fn find_magnet_target(
                         },
                     )
                 };
-            best = Some((distance_squared, target_x, target_y));
+            best = Some((
+                distance_squared,
+                MagnetTarget {
+                    x: target_x,
+                    y: target_y,
+                    bounds,
+                },
+            ));
         }
     }
-    best.map(|(_, x, y)| (x, y))
+    best.map(|(_, target)| target)
+}
+
+impl MagnetRect {
+    fn approximately_matches(self, other: Self) -> bool {
+        (self.left - other.left).abs() <= 2
+            && (self.top - other.top).abs() <= 2
+            && (self.right - other.right).abs() <= 2
+            && (self.bottom - other.bottom).abs() <= 2
+    }
+}
+
+fn distance_to_rect_squared(x: i32, y: i32, rect: MagnetRect) -> i64 {
+    let nearest_x = x.clamp(rect.left, rect.right.saturating_sub(1).max(rect.left));
+    let nearest_y = y.clamp(rect.top, rect.bottom.saturating_sub(1).max(rect.top));
+    let dx = i64::from(nearest_x - x);
+    let dy = i64::from(nearest_y - y);
+    dx * dx + dy * dy
 }
 
 fn clickable_ancestor(

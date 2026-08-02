@@ -457,6 +457,15 @@ impl SettingsApp {
             ui.add_enabled_ui(self.draft.magnet_enabled, |ui| {
                 setting_row(
                     ui,
+                    "Avoid repeat snap",
+                    "Let the pointer escape its last target without being pulled back.",
+                    |ui| {
+                        ui.checkbox(&mut self.draft.magnet_avoid_repeat, "");
+                    },
+                );
+                ui.separator();
+                setting_row(
+                    ui,
                     "Snap radius",
                     "Maximum search distance around the pointer.",
                     |ui| {
