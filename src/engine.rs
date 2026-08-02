@@ -30,6 +30,7 @@ pub enum Action {
     Hide,
     MoveTo(i32, i32),
     MoveBy(i32, i32),
+    Snap,
     Click(MouseButton),
     Button(MouseButton, bool),
     Scroll(i32),
@@ -279,6 +280,9 @@ impl Engine {
         if !pressed {
             if !self.directions.any() {
                 self.reset_movement();
+                if self.config.magnet_enabled {
+                    return Action::Snap;
+                }
             }
             return Action::None;
         }
@@ -384,19 +388,31 @@ impl Engine {
             return match self.config.post_hint {
                 PostHint::Normal => {
                     self.mode = Mode::Normal;
-                    Action::Batch(vec![Action::MoveTo(x, y), Action::Hide])
+                    let mut actions = vec![Action::MoveTo(x, y)];
+                    actions.push(Action::Hide);
+                    if self.config.magnet_enabled {
+                        actions.push(Action::Snap);
+                    }
+                    Action::Batch(actions)
                 }
                 PostHint::Click => {
                     self.mode = Mode::Idle;
-                    Action::Batch(vec![
-                        Action::MoveTo(x, y),
-                        Action::Hide,
-                        Action::Click(MouseButton::Left),
-                    ])
+                    let mut actions = vec![Action::MoveTo(x, y)];
+                    actions.push(Action::Hide);
+                    if self.config.magnet_enabled {
+                        actions.push(Action::Snap);
+                    }
+                    actions.push(Action::Click(MouseButton::Left));
+                    Action::Batch(actions)
                 }
                 PostHint::Exit => {
                     self.mode = Mode::Idle;
-                    Action::Batch(vec![Action::MoveTo(x, y), Action::Hide])
+                    let mut actions = vec![Action::MoveTo(x, y)];
+                    actions.push(Action::Hide);
+                    if self.config.magnet_enabled {
+                        actions.push(Action::Snap);
+                    }
+                    Action::Batch(actions)
                 }
             };
         }
@@ -707,6 +723,20 @@ mod tests {
         };
         assert!(scene.cells.len() <= labels::word_count());
         assert!(!scene.cells.is_empty());
+    }
+
+    #[test]
+    fn magnet_snaps_after_warp_and_direction_release() {
+        let mut engine = engine();
+        engine.config.magnet_enabled = true;
+        engine.activate();
+        engine.handle_key("a", true);
+        assert_eq!(
+            engine.handle_key("b", true),
+            Action::Batch(vec![Action::MoveTo(50, 25), Action::Hide, Action::Snap])
+        );
+        assert_eq!(engine.handle_key("h", true), Action::MoveBy(-8, 0));
+        assert_eq!(engine.handle_key("h", false), Action::Snap);
     }
 
     #[test]

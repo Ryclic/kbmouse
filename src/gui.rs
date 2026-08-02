@@ -447,6 +447,29 @@ impl SettingsApp {
             ui.separator();
             setting_row(
                 ui,
+                "Magnetized cursor",
+                "Experimental (Windows): snap to nearby buttons, links, and controls.",
+                |ui| {
+                    ui.checkbox(&mut self.draft.magnet_enabled, "");
+                },
+            );
+            ui.separator();
+            ui.add_enabled_ui(self.draft.magnet_enabled, |ui| {
+                setting_row(
+                    ui,
+                    "Snap radius",
+                    "Maximum search distance around the pointer.",
+                    |ui| {
+                        ui.add(
+                            egui::Slider::new(&mut self.draft.magnet_radius, 16..=160)
+                                .suffix(" px"),
+                        );
+                    },
+                );
+            });
+            ui.separator();
+            setting_row(
+                ui,
                 "Normal Mode speed",
                 "Pixels moved by each key repeat after selecting a hint.",
                 |ui| {

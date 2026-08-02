@@ -385,6 +385,11 @@ impl Backend for NativeBackend {
         self.move_to(pointer.root_x as i32 + dx, pointer.root_y as i32 + dy)
     }
 
+    fn snap_to_clickable(&mut self) -> Result<()> {
+        // Linux accessibility snapping requires a future AT-SPI2 backend.
+        Ok(())
+    }
+
     fn button(&mut self, button: MouseButton, down: bool) -> Result<()> {
         let detail = match button {
             MouseButton::Left => 1,

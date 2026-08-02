@@ -17,6 +17,21 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+use windows::Win32::{
+    Foundation::POINT as UiPoint,
+    System::Com::{
+        CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+        CoUninitialize,
+    },
+    UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationElement, UIA_ButtonControlTypeId,
+        UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId, UIA_EditControlTypeId,
+        UIA_HyperlinkControlTypeId, UIA_ListItemControlTypeId, UIA_MenuItemControlTypeId,
+        UIA_RadioButtonControlTypeId, UIA_SliderControlTypeId, UIA_SpinnerControlTypeId,
+        UIA_SplitButtonControlTypeId, UIA_TabItemControlTypeId, UIA_ThumbControlTypeId,
+        UIA_TreeItemControlTypeId,
+    },
+};
 use windows_sys::Win32::{
     Foundation::{COLORREF, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::Gdi::{
@@ -72,6 +87,10 @@ pub struct NativeBackend {
     high_contrast_labels: bool,
     crisp_labels: bool,
     label_glow: bool,
+    magnet_enabled: bool,
+    magnet_radius: i32,
+    automation: Option<IUIAutomation>,
+    com_initialized: bool,
 }
 
 impl NativeBackend {
@@ -215,6 +234,7 @@ impl NativeBackend {
             stop_hook_thread(hook_thread_id, hook_thread);
             return Err(last_error("failed to configure label overlay"));
         }
+        let (automation, com_initialized) = initialize_automation();
 
         Ok(Self {
             receiver,
@@ -232,6 +252,10 @@ impl NativeBackend {
             high_contrast_labels: config.high_contrast_labels,
             crisp_labels: config.crisp_labels,
             label_glow: config.label_glow,
+            magnet_enabled: config.magnet_enabled,
+            magnet_radius: config.magnet_radius,
+            automation,
+            com_initialized,
         })
     }
 
@@ -448,6 +472,8 @@ impl Backend for NativeBackend {
         self.high_contrast_labels = config.high_contrast_labels;
         self.crisp_labels = config.crisp_labels;
         self.label_glow = config.label_glow;
+        self.magnet_enabled = config.magnet_enabled;
+        self.magnet_radius = config.magnet_radius;
         if unsafe { SetLayeredWindowAttributes(self.window, 0, self.opacity, LWA_ALPHA) } == 0 {
             return Err(last_error("failed to update overlay opacity"));
         }
@@ -533,6 +559,24 @@ impl Backend for NativeBackend {
         self.send_mouse(MOUSEEVENTF_MOVE, dx, dy, 0)
     }
 
+    fn snap_to_clickable(&mut self) -> Result<()> {
+        if !self.magnet_enabled {
+            return Ok(());
+        }
+        let Some(automation) = self.automation.as_ref() else {
+            return Ok(());
+        };
+        let mut cursor: POINT = unsafe { zeroed() };
+        if unsafe { GetCursorPos(&mut cursor) } == 0 {
+            return Err(last_error("GetCursorPos failed"));
+        }
+        if let Some((x, y)) = find_magnet_target(automation, cursor.x, cursor.y, self.magnet_radius)
+        {
+            self.move_to(x, y)?;
+        }
+        Ok(())
+    }
+
     fn button(&mut self, button: MouseButton, down: bool) -> Result<()> {
         let flags = match (button, down) {
             (MouseButton::Left, true) => MOUSEEVENTF_LEFTDOWN,
@@ -561,8 +605,146 @@ impl Drop for NativeBackend {
         if let Some(thread) = self.hook_thread.take() {
             stop_hook_thread(self.hook_thread_id, thread);
         }
+        self.automation.take();
+        if self.com_initialized {
+            unsafe { CoUninitialize() };
+        }
         HOOK_RUNNING.store(false, Ordering::Release);
     }
+}
+
+fn initialize_automation() -> (Option<IUIAutomation>, bool) {
+    let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+    if result.is_err() {
+        tracing::warn!("Windows UI Automation unavailable: COM initialization failed");
+        return (None, false);
+    }
+    let automation =
+        unsafe { CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) };
+    match automation {
+        Ok(automation) => (Some(automation), true),
+        Err(error) => {
+            tracing::warn!(%error, "Windows UI Automation unavailable");
+            unsafe { CoUninitialize() };
+            (None, false)
+        }
+    }
+}
+
+fn find_magnet_target(
+    automation: &IUIAutomation,
+    cursor_x: i32,
+    cursor_y: i32,
+    radius: i32,
+) -> Option<(i32, i32)> {
+    let walker = unsafe { automation.ControlViewWalker().ok()? };
+    let step = (radius / 4).clamp(8, 20);
+    let mut offsets = vec![0, -radius, radius];
+    let mut offset = -radius;
+    while offset <= radius {
+        offsets.push(offset);
+        offset += step;
+    }
+    offsets.sort_unstable();
+    offsets.dedup();
+
+    let radius_squared = i64::from(radius) * i64::from(radius);
+    let mut best: Option<(i64, i32, i32)> = None;
+    for &dy in &offsets {
+        for &dx in &offsets {
+            if i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy) > radius_squared {
+                continue;
+            }
+            let point = UiPoint {
+                x: cursor_x + dx,
+                y: cursor_y + dy,
+            };
+            let Ok(element) = (unsafe { automation.ElementFromPoint(point) }) else {
+                continue;
+            };
+            let Some(rect) = clickable_ancestor(element, &walker) else {
+                continue;
+            };
+            if rect.right <= rect.left || rect.bottom <= rect.top {
+                continue;
+            }
+
+            let nearest_x = cursor_x.clamp(rect.left, rect.right - 1);
+            let nearest_y = cursor_y.clamp(rect.top, rect.bottom - 1);
+            let distance_x = i64::from(nearest_x - cursor_x);
+            let distance_y = i64::from(nearest_y - cursor_y);
+            let distance_squared = distance_x * distance_x + distance_y * distance_y;
+            if distance_squared > radius_squared
+                || best.is_some_and(|(score, _, _)| score <= distance_squared)
+            {
+                continue;
+            }
+
+            let center_x = rect.left + (rect.right - rect.left) / 2;
+            let center_y = rect.top + (rect.bottom - rect.top) / 2;
+            let center_dx = i64::from(center_x - cursor_x);
+            let center_dy = i64::from(center_y - cursor_y);
+            let (target_x, target_y) =
+                if center_dx * center_dx + center_dy * center_dy <= radius_squared {
+                    (center_x, center_y)
+                } else {
+                    (
+                        if rect.right - rect.left > 4 {
+                            nearest_x.clamp(rect.left + 2, rect.right - 3)
+                        } else {
+                            center_x
+                        },
+                        if rect.bottom - rect.top > 4 {
+                            nearest_y.clamp(rect.top + 2, rect.bottom - 3)
+                        } else {
+                            center_y
+                        },
+                    )
+                };
+            best = Some((distance_squared, target_x, target_y));
+        }
+    }
+    best.map(|(_, x, y)| (x, y))
+}
+
+fn clickable_ancestor(
+    mut element: IUIAutomationElement,
+    walker: &windows::Win32::UI::Accessibility::IUIAutomationTreeWalker,
+) -> Option<windows::Win32::Foundation::RECT> {
+    for _ in 0..5 {
+        let enabled =
+            unsafe { element.CurrentIsEnabled().ok() }.is_some_and(|enabled| enabled.as_bool());
+        let visible = unsafe { element.CurrentIsOffscreen().ok() }
+            .is_some_and(|offscreen| !offscreen.as_bool());
+        let control_type = unsafe { element.CurrentControlType().ok() };
+        if enabled && visible && control_type.is_some_and(is_clickable_control) {
+            return unsafe { element.CurrentBoundingRectangle().ok() };
+        }
+        element = unsafe { walker.GetParentElement(&element).ok()? };
+    }
+    None
+}
+
+fn is_clickable_control(
+    control_type: windows::Win32::UI::Accessibility::UIA_CONTROLTYPE_ID,
+) -> bool {
+    [
+        UIA_ButtonControlTypeId,
+        UIA_CheckBoxControlTypeId,
+        UIA_ComboBoxControlTypeId,
+        UIA_EditControlTypeId,
+        UIA_HyperlinkControlTypeId,
+        UIA_ListItemControlTypeId,
+        UIA_MenuItemControlTypeId,
+        UIA_RadioButtonControlTypeId,
+        UIA_SliderControlTypeId,
+        UIA_SpinnerControlTypeId,
+        UIA_SplitButtonControlTypeId,
+        UIA_TabItemControlTypeId,
+        UIA_ThumbControlTypeId,
+        UIA_TreeItemControlTypeId,
+    ]
+    .contains(&control_type)
 }
 
 fn sender_slot() -> &'static Mutex<Option<Sender<KeyEvent>>> {

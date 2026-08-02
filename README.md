@@ -128,6 +128,8 @@ hold_click_to_drag = true
 move_step = 8
 hold_move_step = 24
 smooth_movement = false
+magnet_enabled = false
+magnet_radius = 56
 scroll_step = 120
 span_all_monitors = false
 
@@ -159,6 +161,13 @@ key taps that accelerate into fluid movement when held. It is experimental and
 disabled by default so the constant-speed mode remains available for users who
 prefer predictable pixel movement.
 
+Enable **Magnetized cursor** under Settings → Controls to make the pointer snap
+to a nearby accessible button, link, menu item, text field, or similar control
+after a direction key is released or a grid jump finishes. The radius is
+adjustable from 16–160 pixels. This experimental feature is disabled by default
+and currently works only on Windows through UI Automation; custom-rendered
+controls that do not expose accessibility information may not be detected.
+
 ## Manual beta checklist
 
 ### Windows
@@ -171,6 +180,8 @@ prefer predictable pixel movement.
   subdivision.
 - Verify a secondary monitor to the left of the primary (negative coordinates).
 - Verify mixed 100%/150% DPI monitors and an elevated app.
+- Enable Magnetized cursor and verify snapping near standard buttons and links,
+  with no movement when no supported control is within the configured radius.
 - Force-terminate kbmouse while the overlay is open. Windows must remove the hook
   and normal keyboard behavior must return.
 
@@ -184,6 +195,7 @@ prefer predictable pixel movement.
 
 - Editing `config.toml` manually still requires a restart; GUI saves apply live.
 - The tray icon is currently Windows-only; there is no installer yet.
+- Magnetized cursor is Windows-only; Linux requires a future AT-SPI2 backend.
 - No Wayland or macOS backend.
 - X11 uses the server's core bitmap font and a solid backdrop.
 - Multi-monitor selection on X11 currently uses the root screen as one desktop.

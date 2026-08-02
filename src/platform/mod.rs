@@ -21,6 +21,7 @@ pub trait Backend {
     fn hide(&mut self) -> Result<()>;
     fn move_to(&mut self, x: i32, y: i32) -> Result<()>;
     fn move_by(&mut self, dx: i32, dy: i32) -> Result<()>;
+    fn snap_to_clickable(&mut self) -> Result<()>;
     fn button(&mut self, button: MouseButton, down: bool) -> Result<()>;
     fn scroll(&mut self, amount: i32) -> Result<()>;
 }

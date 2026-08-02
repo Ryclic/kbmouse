@@ -49,6 +49,7 @@ fn execute<B: Backend>(backend: &mut B, action: Action) -> Result<()> {
         Action::Hide => backend.hide()?,
         Action::MoveTo(x, y) => backend.move_to(x, y)?,
         Action::MoveBy(dx, dy) => backend.move_by(dx, dy)?,
+        Action::Snap => backend.snap_to_clickable()?,
         Action::Click(button) => {
             backend.button(button, true)?;
             backend.button(button, false)?;

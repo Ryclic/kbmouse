@@ -31,6 +31,8 @@ pub struct Config {
     pub move_step: i32,
     pub hold_move_step: i32,
     pub smooth_movement: bool,
+    pub magnet_enabled: bool,
+    pub magnet_radius: i32,
     pub scroll_step: i32,
     pub span_all_monitors: bool,
     pub keys: Keys,
@@ -93,6 +95,8 @@ impl Default for Config {
             move_step: 8,
             hold_move_step: 24,
             smooth_movement: false,
+            magnet_enabled: false,
+            magnet_radius: 56,
             scroll_step: 120,
             span_all_monitors: false,
             keys: Keys::default(),
@@ -175,6 +179,9 @@ impl Config {
         }
         if self.move_step <= 0 || self.hold_move_step <= 0 || self.scroll_step <= 0 {
             anyhow::bail!("movement and scroll speeds must be greater than zero");
+        }
+        if !(8..=300).contains(&self.magnet_radius) {
+            anyhow::bail!("magnet_radius must be between 8 and 300 pixels");
         }
         Ok(())
     }
