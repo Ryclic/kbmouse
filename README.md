@@ -1,5 +1,9 @@
 # kbmouse
 
+<p align="center">
+  <img src="assets/logo.png" alt="kbmouse logo" width="160">
+</p>
+
 `kbmouse` is a small keyboard-driven virtual mouse for Windows and X11 Linux.
 Tap Caps Lock, type the label shown over a screen region, and the pointer jumps
 there. It is inspired by [warpd](https://github.com/rvaiya/warpd).
