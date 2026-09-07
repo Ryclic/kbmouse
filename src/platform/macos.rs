@@ -345,7 +345,6 @@ pub fn show_startup_error(message: &str) {
         app.activateIgnoringOtherApps(true);
         let alert = NSAlert::new(mtm);
         alert.setMessageText(&NSString::from_str("kbmouse couldn’t start"));
-        alert.setInformativeText(&NSString::from_str(message));
         let pane = if message.contains("Accessibility") {
             Some("Privacy_Accessibility")
         } else if message.contains("Input Monitoring") {
@@ -353,6 +352,23 @@ pub fn show_startup_error(message: &str) {
         } else {
             None
         };
+        let details = if pane.is_some() {
+            format!(
+                "{message}\n\n\
+                 Caps Lock capture requires BOTH Accessibility and Input Monitoring. \
+                 Enable kbmouse in both sections of System Settings → Privacy & Security.\n\n\
+                 If Accessibility is already enabled, quit kbmouse, remove its entry with −, \
+                 then use + to add the copy you launch from Applications and enable it again. \
+                 Replacing a locally signed build can invalidate an earlier grant even when \
+                 the toggle still appears enabled. Permission granted to Terminal does not \
+                 grant permission to the installed app.\n\n\
+                 Reopen kbmouse after changing permissions. Accessibility is checked first; \
+                 an Accessibility error does not tell us whether Input Monitoring is granted."
+            )
+        } else {
+            message.to_owned()
+        };
+        alert.setInformativeText(&NSString::from_str(&details));
         if pane.is_some() {
             alert.addButtonWithTitle(&NSString::from_str("Open System Settings"));
         }
