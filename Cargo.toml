@@ -35,7 +35,7 @@ objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDate", "NSDictionary", "NSString", "NSGeometry", "NSObject", "NSRunLoop"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "std", "libc", "objc2-core-foundation",
-    "NSApplication", "NSResponder", "NSPanel", "NSWindow", "NSView", "NSControl",
+    "NSAlert", "NSApplication", "NSResponder", "NSPanel", "NSWindow", "NSView", "NSControl",
     "NSImageView", "NSImage", "NSColor", "NSBezierPath", "NSFont", "NSFontDescriptor",
     "NSGraphicsContext", "NSGraphics", "NSAttributedString", "NSStringDrawing",
     "NSShadow", "NSCell", "NSEvent", "NSRunningApplication", "NSWorkspace",

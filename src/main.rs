@@ -39,6 +39,17 @@ struct Args {
 fn main() {
     if let Err(error) = try_main() {
         eprintln!("kbmouse: {error:#}");
+        #[cfg(target_os = "macos")]
+        if std::env::args_os().len() == 1
+            && std::env::current_exe().is_ok_and(|exe| {
+                exe.parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                    .is_some_and(|p| p.extension().is_some_and(|ext| ext == "app"))
+            })
+        {
+            platform::show_startup_error(&format!("{error:#}"));
+        }
         std::process::exit(1);
     }
 }

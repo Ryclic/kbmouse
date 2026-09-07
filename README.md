@@ -401,3 +401,12 @@ cargo build --locked --example release
 python3 scripts/test_packaging.py
 python3 scripts/test_release.py
 ```
+
+### macOS app exits before showing settings
+
+The app needs its own permissions after being copied into Applications; permission
+previously granted to Terminal does not grant permission to the installed app.
+Open System Settings → Privacy & Security and enable **kbmouse** under both
+**Accessibility** and **Input Monitoring**, then reopen kbmouse. Use the `+` button
+to add `/Applications/kbmouse.app` if it is missing. Bundle startup errors now show
+a dialog instead of disappearing into Finder's hidden terminal output.

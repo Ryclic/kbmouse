@@ -329,6 +329,46 @@ fn leader_code(name: &str) -> Result<u16> {
         .map(|(code, _)| *code)
         .with_context(|| format!("unsupported macOS leader '{name}'"))
 }
+/// Finder does not show stderr, so bundle startup failures need a native dialog.
+pub fn show_startup_error(message: &str) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSApplication, NSApplicationActivationPolicy};
+    use objc2_foundation::NSString;
+    autoreleasepool(|_| {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        app.finishLaunching();
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str("kbmouse couldn’t start"));
+        alert.setInformativeText(&NSString::from_str(message));
+        let pane = if message.contains("Accessibility") {
+            Some("Privacy_Accessibility")
+        } else if message.contains("Input Monitoring") {
+            Some("Privacy_ListenEvent")
+        } else {
+            None
+        };
+        if pane.is_some() {
+            alert.addButtonWithTitle(&NSString::from_str("Open System Settings"));
+        }
+        alert.addButtonWithTitle(&NSString::from_str("Quit"));
+        if alert.runModal() == 1000
+            && let Some(pane) = pane
+        {
+            let _ = std::process::Command::new("/usr/bin/open")
+                .arg(format!(
+                    "x-apple.systempreferences:com.apple.preference.security?{pane}"
+                ))
+                .spawn();
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
