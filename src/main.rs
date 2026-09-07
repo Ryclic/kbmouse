@@ -8,6 +8,7 @@ mod instance;
 mod labels;
 mod platform;
 mod runtime;
+mod updater;
 
 use anyhow::Result;
 use clap::Parser;
@@ -21,6 +22,12 @@ struct Args {
     /// Open hint mode immediately and exit after the interaction
     #[arg(long)]
     hint: bool,
+    /// Check for a signed release without starting keyboard capture
+    #[arg(long, conflicts_with_all = ["hint", "update"])]
+    check_update: bool,
+    /// Install the latest signed release and exit (quit running kbmouse first)
+    #[arg(long, conflicts_with_all = ["hint", "check_update"])]
+    update: bool,
     /// Use a custom configuration file
     #[arg(long)]
     config: Option<PathBuf>,
@@ -47,7 +54,24 @@ fn try_main() -> Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
         .init();
 
-    let _instance = instance::SingleInstance::acquire()?;
+    let executable = std::env::current_exe()?;
+    if args.check_update {
+        match updater::check(&executable)? {
+            Some(version) => println!("kbmouse {version} is available"),
+            None => println!("kbmouse is up to date"),
+        }
+        return Ok(());
+    }
+    let instance = instance::SingleInstance::acquire()?;
+    if args.update {
+        if let Some(version) = updater::check(&executable)? {
+            updater::install(&executable, &version, |_, _| {})?;
+            println!("Installed kbmouse {version}. Launch kbmouse to use the update.");
+        } else {
+            println!("kbmouse is up to date");
+        }
+        return Ok(());
+    }
     let config_path = args.config.unwrap_or(Config::path()?);
     let config = Config::load_or_create(&config_path)?;
     tracing::info!(path = %config_path.display(), "loaded configuration");
@@ -80,9 +104,16 @@ fn try_main() -> Result<()> {
         .recv()
         .map_err(|_| anyhow::anyhow!("input runtime stopped during startup"))?
         .map_err(anyhow::Error::msg)?;
-    let result = gui::run(config_path, config, config_tx);
+    let result = gui::run(config_path, config, config_tx, executable.clone());
     runtime_thread
         .join()
         .map_err(|_| anyhow::anyhow!("input runtime panicked"))?;
-    result
+    let restart = result?;
+    // The runtime has released capture/buttons. Release the socket/mutex before
+    // the new process starts so it cannot mistake this process for another instance.
+    drop(instance);
+    if restart {
+        updater::restart(&executable)?;
+    }
+    Ok(())
 }

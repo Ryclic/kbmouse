@@ -1,13 +1,22 @@
 use crate::config::{Config, LabelStyle, PostHint};
+use crate::updater::{Status as UpdateStatus, Updater};
 use anyhow::{Context, Result};
 use eframe::egui::{self, Color32, RichText};
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     General,
     Appearance,
     Controls,
+    Updates,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -21,7 +30,8 @@ pub fn run(
     config_path: PathBuf,
     config: Config,
     config_tx: crossbeam_channel::Sender<Config>,
-) -> Result<()> {
+    executable: PathBuf,
+) -> Result<bool> {
     let logo = logo_pixels(64)?;
     let window_logo = logo.clone();
     let options = eframe::NativeOptions {
@@ -36,6 +46,8 @@ pub fn run(
             }),
         ..Default::default()
     };
+    let restart = Arc::new(AtomicBool::new(false));
+    let restart_request = restart.clone();
     eframe::run_native(
         "kbmouse settings",
         options,
@@ -46,10 +58,13 @@ pub fn run(
                 config,
                 config_tx,
                 logo,
+                executable,
+                restart_request,
             )))
         }),
     )
-    .map_err(|error| anyhow::anyhow!("settings window failed: {error}"))
+    .map_err(|error| anyhow::anyhow!("settings window failed: {error}"))?;
+    Ok(restart.load(Ordering::Acquire))
 }
 
 struct SettingsApp {
@@ -60,7 +75,8 @@ struct SettingsApp {
     page: Page,
     status: String,
     status_error: bool,
-    #[cfg(windows)]
+    updater: Updater,
+    restart_request: Arc<AtomicBool>,
     quitting: bool,
     #[cfg(windows)]
     tray: Option<TrayState>,
@@ -73,6 +89,8 @@ impl SettingsApp {
         config: Config,
         config_tx: crossbeam_channel::Sender<Config>,
         logo: Vec<u8>,
+        executable: PathBuf,
+        restart_request: Arc<AtomicBool>,
     ) -> Self {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = Color32::from_rgb(14, 20, 31);
@@ -108,7 +126,8 @@ impl SettingsApp {
             page: Page::General,
             status,
             status_error,
-            #[cfg(windows)]
+            updater: Updater::new(executable),
+            restart_request,
             quitting: false,
             #[cfg(windows)]
             tray,
@@ -168,6 +187,7 @@ impl SettingsApp {
                 nav_button(ui, &mut self.page, Page::General, "General");
                 nav_button(ui, &mut self.page, Page::Appearance, "Appearance");
                 nav_button(ui, &mut self.page, Page::Controls, "Controls");
+                nav_button(ui, &mut self.page, Page::Updates, "Updates");
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.label(
                         RichText::new("Running in the background")
@@ -588,6 +608,77 @@ impl SettingsApp {
         });
     }
 
+    fn updates(&mut self, ui: &mut egui::Ui) {
+        page_title(ui, "Updates", "Keep kbmouse up to date.");
+        ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
+        ui.checkbox(
+            &mut self.draft.automatic_update_checks,
+            "Automatically check for updates",
+        );
+        ui.label("Checks run at startup and once a day. Save settings to remember this choice.");
+        ui.add_space(16.0);
+        match self.updater.status.clone() {
+            UpdateStatus::Idle => {
+                ui.label("Check for a newer release.");
+            }
+            UpdateStatus::Disabled(reason) => {
+                ui.label(reason);
+            }
+            UpdateStatus::Checking => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Checking for updates…");
+                });
+            }
+            UpdateStatus::Current => {
+                ui.label("You’re up to date.");
+            }
+            UpdateStatus::Available(version) => {
+                ui.label(format!("kbmouse {version} is available."));
+                if ui.button("Download and install update").clicked() {
+                    self.updater.install(version);
+                }
+            }
+            UpdateStatus::Installing => {
+                ui.label("Downloading, verifying, and installing the update…");
+                let (done, total) = self.updater.progress;
+                if let Some(total) = total.filter(|total| *total > 0) {
+                    ui.add(
+                        egui::ProgressBar::new((done as f64 / total as f64).min(1.0) as f32)
+                            .show_percentage(),
+                    );
+                } else {
+                    ui.spinner();
+                }
+                ui.label("Keep kbmouse running until installation finishes.");
+            }
+            UpdateStatus::Installed(version) => {
+                ui.label(format!(
+                    "Version {version} is installed. Restart to use it."
+                ));
+                if ui.button("Restart now").clicked() {
+                    self.restart_request.store(true, Ordering::Release);
+                    self.quitting = true;
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            UpdateStatus::Error(error) => {
+                ui.colored_label(Color32::from_rgb(248, 113, 113), error);
+            }
+        }
+        ui.add_space(12.0);
+        if ui
+            .add_enabled(
+                self.updater.can_check(),
+                egui::Button::new("Check for updates"),
+            )
+            .clicked()
+        {
+            self.updater.check();
+        }
+        ui.hyperlink_to("Release notes and downloads", crate::updater::RELEASES_URL);
+    }
+
     #[cfg(windows)]
     fn handle_tray(&mut self, ctx: &egui::Context) {
         let Some(tray) = &self.tray else {
@@ -608,6 +699,10 @@ impl SettingsApp {
         }
         while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
             if event.id == tray.quit_id {
+                if self.updater.installing() {
+                    self.status = "Wait for update installation to finish before quitting.".into();
+                    continue;
+                }
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -618,6 +713,10 @@ impl SettingsApp {
 impl eframe::App for SettingsApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = root.ctx().clone();
+        self.updater.tick(self.draft.automatic_update_checks);
+        if self.updater.installing() && ctx.input(|input| input.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         #[cfg(windows)]
         self.handle_tray(&ctx);
 
@@ -671,6 +770,7 @@ impl eframe::App for SettingsApp {
                     Page::General => self.general(ui),
                     Page::Appearance => self.appearance(ui),
                     Page::Controls => self.controls(ui),
+                    Page::Updates => self.updates(ui),
                 });
             });
 

@@ -9,6 +9,7 @@ use std::{
 #[serde(default)]
 pub struct Config {
     pub leader: String,
+    pub automatic_update_checks: bool,
     pub hold_leader_for_normal: bool,
     pub leader_tap_ms: u64,
     pub label_style: LabelStyle,
@@ -74,6 +75,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             leader: "capslock".into(),
+            automatic_update_checks: true,
             hold_leader_for_normal: true,
             leader_tap_ms: 200,
             label_style: LabelStyle::Sequences,

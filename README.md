@@ -301,9 +301,39 @@ pointer travels beyond the configured snap radius.
 ## Known beta limitations
 
 - Editing `config.toml` manually still requires a restart; GUI saves apply live.
-- The tray icon is currently Windows-only; there is no installer yet.
+- The tray icon is currently Windows-only.
 - Magnetized cursor is Windows-only; Linux requires a future AT-SPI2 backend.
 - No Wayland backend. macOS magnet snapping is not implemented.
 - X11 uses the server's core bitmap font and a solid backdrop.
 - Multi-monitor selection on X11 currently uses the root screen as one desktop.
 - Key movement uses operating-system key repeat rather than time-based animation.
+
+## Updating
+
+Open **Settings → Updates** to check for releases, download and install an update,
+and restart kbmouse. Checks run in the background at startup and every 24 hours;
+the checkbox on this page disables automatic checks. Downloads and installation
+require clicking **Download and install update**. Configuration is preserved.
+
+The same updater is available without starting keyboard capture:
+
+```sh
+kbmouse --check-update
+# Quit the running app first:
+kbmouse --update
+```
+
+Official builds use `self_update` with an embedded Ed25519 public key. Every update
+archive must carry a valid signature bound to its exact filename. Unsigned,
+tampered, older, and prerelease updates are rejected. macOS updates replace the
+whole `.app` and verify its code signature before replacement; Windows and Linux
+replace the executable. Restart releases keyboard capture and the single-instance
+lock before launching the installed version.
+
+Updates support Apple Silicon and Intel macOS app bundles, x64 Windows, and x64
+Linux direct installations. The destination must be writable by your user. Linux
+package-manager installations should use their package manager. On macOS, copy
+the app out of the DMG before updating; use `~/Applications` if `/Applications`
+is not writable. A development build without `KBMOUSE_UPDATE_PUBLIC_KEY` set at
+compile time has updates disabled. This value is the signing key's 64-character
+hexadecimal public key, never the private signing key.
