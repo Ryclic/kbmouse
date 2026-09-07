@@ -82,9 +82,10 @@ cargo build --release
 ./target/release/kbmouse
 ```
 
-The build compiles and links a small Objective-C backend into the executable;
-there is no helper process or additional runtime to install. Cross-compilation
-from Linux to macOS is not supported by this build script.
+The macOS backend is written in Rust using AppKit, Core Graphics, and IOKit
+bindings. Cargo builds it directly, with no Objective-C sources, custom native
+build script, helper process, or additional runtime to install. Build on macOS
+with the Apple SDK and linker provided by the Command Line Tools.
 
 Before running, grant **Accessibility** and **Input Monitoring** access to
 kbmouse (or the terminal launching it) under **System Settings → Privacy &

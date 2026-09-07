@@ -18,8 +18,3 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
-      - name: Test native macOS input routing
-        if: runner.os == 'macOS'
-        run: |
-          xcrun clang -fobjc-arc -fblocks -Wall -Wextra -Werror tests/macos_native.m -framework AppKit -framework ApplicationServices -framework IOKit -o /tmp/kbmouse-native-tests
-          /tmp/kbmouse-native-tests

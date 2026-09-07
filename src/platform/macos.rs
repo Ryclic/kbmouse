@@ -4,176 +4,242 @@ use crate::{
     engine::{MouseButton, Scene},
     geometry::Rect,
 };
-use anyhow::{Context, Result, bail};
-use std::{
-    ffi::{CStr, CString, c_char, c_void},
-    ptr::NonNull,
-    time::Duration,
+use anyhow::{Context, Result};
+use core_foundation::{
+    base::{CFType, CFTypeRef, TCFType},
+    string::CFString,
 };
+use core_graphics::{
+    display::CGDisplay,
+    event::{CGEvent, CGEventTapLocation, CGEventType, CGMouseButton, EventField, ScrollEventUnit},
+    event_source::{CGEventSource, CGEventSourceStateID},
+    geometry::{CGPoint, CGSize},
+};
+use objc2::rc::autoreleasepool;
+use objc2_app_kit::NSWorkspace;
+use std::{ffi::c_void, time::Duration};
 
-#[repr(C)]
-#[derive(Default)]
-struct NativeKey {
-    code: u16,
-    down: bool,
-}
+mod ffi;
+mod input;
+mod overlay;
+pub use overlay::initialize;
 
-unsafe extern "C" {
-    fn kb_init(one_shot: bool);
-    fn kb_create(leader: u16) -> *mut c_void;
-    fn kb_error() -> *const c_char;
-    fn kb_destroy(state: *mut c_void);
-    fn kb_poll(state: *mut c_void, timeout: f64, key: *mut NativeKey) -> i32;
-    fn kb_active(state: *mut c_void, active: bool);
-    fn kb_leader(state: *mut c_void, leader: u16) -> bool;
-    fn kb_bounds(span: bool) -> Rect;
-    fn kb_config(
-        bg: *const c_char,
-        grid: *const c_char,
-        text: *const c_char,
-        accent: *const c_char,
-        font: u32,
-        opacity: u8,
-        contrast: bool,
-        glow: bool,
-        crisp: bool,
-    );
-    fn kb_begin(bounds: Rect);
-    fn kb_cell(bounds: Rect, label: *const c_char, matched: bool, typed: bool);
-    fn kb_end();
-    fn kb_hide();
-    fn kb_move(state: *mut c_void, x: i32, y: i32, relative: bool);
-    fn kb_button(state: *mut c_void, button: u32, down: bool);
-    fn kb_scroll(amount: i32);
-}
-
-/// Called on the main thread before starting either the settings UI or one-shot mode.
-pub fn initialize(one_shot: bool) {
-    unsafe { kb_init(one_shot) }
-}
-
-// The event tap and drawing context must stay on their creating runtime thread.
 pub struct NativeBackend {
-    state: NonNull<c_void>,
-    span: bool,
+    capture: input::Capture,
+    config: Config,
+    buttons: [bool; 3],
 }
 impl NativeBackend {
     pub fn new(config: &Config) -> Result<Self> {
-        let leader = leader_code(&config.leader)?;
-        let state = NonNull::new(unsafe { kb_create(leader) }).with_context(native_error)?;
-        let mut backend = Self {
-            state,
-            span: config.span_all_monitors,
+        Ok(Self {
+            capture: input::Capture::new(leader_code(&config.leader)?)?,
+            config: config.clone(),
+            buttons: [false; 3],
+        })
+    }
+    fn move_pointer(&self, point: CGPoint) -> Result<()> {
+        let (kind, button) = if self.buttons[0] {
+            (CGEventType::LeftMouseDragged, CGMouseButton::Left)
+        } else if self.buttons[1] {
+            (CGEventType::RightMouseDragged, CGMouseButton::Right)
+        } else if self.buttons[2] {
+            (CGEventType::OtherMouseDragged, CGMouseButton::Center)
+        } else {
+            (CGEventType::MouseMoved, CGMouseButton::Left)
         };
-        backend.apply_config(config)?;
-        Ok(backend)
+        let event = CGEvent::new_mouse_event(source()?, kind, point, button)
+            .map_err(|()| anyhow::anyhow!("could not create macOS pointer event"))?;
+        event.post(CGEventTapLocation::HID);
+        Ok(())
     }
 }
 impl Backend for NativeBackend {
     fn screen_bounds(&self) -> Rect {
-        unsafe { kb_bounds(self.span) }
+        autoreleasepool(|_| {
+            let focus = focused_window_center()
+                .or_else(|| pointer().ok())
+                .unwrap_or(CGPoint::new(0.0, 0.0));
+            let mut bounds = CGDisplay::main().bounds();
+            for display in CGDisplay::active_displays().unwrap_or_default() {
+                let r = CGDisplay::new(display).bounds();
+                if self.config.span_all_monitors {
+                    let left = bounds.origin.x.min(r.origin.x);
+                    let top = bounds.origin.y.min(r.origin.y);
+                    let right =
+                        (bounds.origin.x + bounds.size.width).max(r.origin.x + r.size.width);
+                    let bottom =
+                        (bounds.origin.y + bounds.size.height).max(r.origin.y + r.size.height);
+                    bounds.origin = CGPoint::new(left, top);
+                    bounds.size = CGSize::new(right - left, bottom - top);
+                } else if focus.x >= r.origin.x
+                    && focus.y >= r.origin.y
+                    && focus.x < r.origin.x + r.size.width
+                    && focus.y < r.origin.y + r.size.height
+                {
+                    bounds = r;
+                    break;
+                }
+            }
+            Rect {
+                x: bounds.origin.x as i32,
+                y: bounds.origin.y as i32,
+                width: bounds.size.width as u32,
+                height: bounds.size.height as u32,
+            }
+        })
     }
     fn next_event(&mut self, timeout: Duration) -> Result<Option<KeyEvent>> {
-        let mut key = NativeKey::default();
-        match unsafe { kb_poll(self.state.as_ptr(), timeout.as_secs_f64(), &mut key) } {
-            -1 => bail!("macOS keyboard capture was interrupted; restart kbmouse to resume safely"),
-            0 => Ok(None),
-            _ => Ok(key_name(key.code).map(|name| KeyEvent {
+        Ok(self.capture.next(timeout)?.and_then(|key| {
+            key_name(key.code).map(|name| KeyEvent {
                 key: name.into(),
                 pressed: key.down,
-            })),
-        }
+            })
+        }))
     }
     fn apply_config(&mut self, config: &Config) -> Result<()> {
-        let leader = leader_code(&config.leader)?;
-        let colors = [
-            &config.background_color,
-            &config.grid_color,
-            &config.text_color,
-            &config.accent_color,
-        ]
-        .map(|s| CString::new(s.as_str()))
-        .into_iter()
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-        unsafe {
-            if !kb_leader(self.state.as_ptr(), leader) {
-                bail!(native_error());
-            }
-            kb_config(
-                colors[0].as_ptr(),
-                colors[1].as_ptr(),
-                colors[2].as_ptr(),
-                colors[3].as_ptr(),
-                config.font_size,
-                config.backdrop_opacity,
-                config.high_contrast_labels,
-                config.label_glow,
-                config.crisp_labels,
-            );
-        }
-        self.span = config.span_all_monitors;
+        self.capture.set_leader(leader_code(&config.leader)?)?;
+        self.config = config.clone();
         Ok(())
     }
     fn set_active(&mut self, active: bool) {
-        unsafe { kb_active(self.state.as_ptr(), active) }
+        self.capture.set_active(active);
     }
     fn show(&mut self, scene: &Scene) -> Result<()> {
-        // Validate strings before locking the native graphics context.
-        let labels = scene
-            .cells
-            .iter()
-            .map(|cell| CString::new(cell.label.as_str()))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        unsafe {
-            kb_begin(scene.bounds);
-            for (cell, label) in scene.cells.iter().zip(labels.iter()) {
-                kb_cell(
-                    cell.bounds,
-                    label.as_ptr(),
-                    cell.matched,
-                    !scene.typed.is_empty(),
-                );
-            }
-            kb_end();
-        }
+        overlay::show(scene.clone(), self.config.clone());
         Ok(())
     }
     fn hide(&mut self) -> Result<()> {
-        unsafe { kb_hide() };
+        overlay::hide();
         Ok(())
     }
     fn move_to(&mut self, x: i32, y: i32) -> Result<()> {
-        unsafe { kb_move(self.state.as_ptr(), x, y, false) };
-        Ok(())
+        self.move_pointer(CGPoint::new(x as f64, y as f64))
     }
     fn move_by(&mut self, dx: i32, dy: i32) -> Result<()> {
-        unsafe { kb_move(self.state.as_ptr(), dx, dy, true) };
-        Ok(())
+        let p = pointer()?;
+        self.move_pointer(CGPoint::new(p.x + dx as f64, p.y + dy as f64))
     }
     fn snap_to_clickable(&mut self) -> Result<()> {
-        // Like X11, macOS does not yet implement accessibility magnet snapping.
         Ok(())
-    }
+    } // As before, magnet snapping is Windows-only.
     fn button(&mut self, button: MouseButton, down: bool) -> Result<()> {
-        let button = match button {
-            MouseButton::Left => 0,
-            MouseButton::Right => 1,
-            MouseButton::Middle => 2,
+        let (index, button, up_kind, down_kind) = match button {
+            MouseButton::Left => (
+                0,
+                CGMouseButton::Left,
+                CGEventType::LeftMouseUp,
+                CGEventType::LeftMouseDown,
+            ),
+            MouseButton::Right => (
+                1,
+                CGMouseButton::Right,
+                CGEventType::RightMouseUp,
+                CGEventType::RightMouseDown,
+            ),
+            MouseButton::Middle => (
+                2,
+                CGMouseButton::Center,
+                CGEventType::OtherMouseUp,
+                CGEventType::OtherMouseDown,
+            ),
         };
-        unsafe { kb_button(self.state.as_ptr(), button, down) };
+        let event = CGEvent::new_mouse_event(
+            source()?,
+            if down { down_kind } else { up_kind },
+            pointer()?,
+            button,
+        )
+        .map_err(|()| anyhow::anyhow!("could not create macOS button event"))?;
+        event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, 1);
+        event.post(CGEventTapLocation::HID);
+        self.buttons[index] = down;
         Ok(())
     }
     fn scroll(&mut self, amount: i32) -> Result<()> {
-        unsafe { kb_scroll(amount) };
+        let event = CGEvent::new_scroll_event(source()?, ScrollEventUnit::PIXEL, 1, amount, 0, 0)
+            .map_err(|()| anyhow::anyhow!("could not create macOS scroll event"))?;
+        event.post(CGEventTapLocation::HID);
         Ok(())
     }
 }
 impl Drop for NativeBackend {
     fn drop(&mut self) {
-        unsafe { kb_destroy(self.state.as_ptr()) }
+        for (index, button) in [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+            .into_iter()
+            .enumerate()
+        {
+            if self.buttons[index] {
+                let _ = self.button(button, false);
+            }
+        }
+        overlay::hide();
     }
 }
-
+fn source() -> Result<CGEventSource> {
+    CGEventSource::new(CGEventSourceStateID::CombinedSessionState)
+        .map_err(|()| anyhow::anyhow!("could not create macOS event source"))
+}
+fn pointer() -> Result<CGPoint> {
+    CGEvent::new(source()?)
+        .map(|event| event.location())
+        .map_err(|()| anyhow::anyhow!("could not read macOS pointer position"))
+}
+fn attribute(element: &CFType, name: &str) -> Option<CFType> {
+    let name = CFString::new(name);
+    let mut value: CFTypeRef = std::ptr::null();
+    let result = unsafe {
+        ffi::AXUIElementCopyAttributeValue(
+            element.as_CFTypeRef(),
+            name.as_concrete_TypeRef(),
+            &mut value,
+        )
+    };
+    if result != 0 || value.is_null() {
+        None
+    } else {
+        Some(unsafe { CFType::wrap_under_create_rule(value) })
+    }
+}
+fn focused_window_center() -> Option<CGPoint> {
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let raw = unsafe { ffi::AXUIElementCreateApplication(app.processIdentifier()) };
+    if raw.is_null() {
+        return None;
+    }
+    let application = unsafe { CFType::wrap_under_create_rule(raw) };
+    unsafe {
+        ffi::AXUIElementSetMessagingTimeout(application.as_CFTypeRef(), 0.05);
+    }
+    let window = attribute(&application, "AXFocusedWindow")?;
+    let position = attribute(&window, "AXPosition")?;
+    let size = attribute(&window, "AXSize")?;
+    unsafe {
+        if position.type_of() != ffi::AXValueGetTypeID()
+            || size.type_of() != ffi::AXValueGetTypeID()
+        {
+            return None;
+        }
+        let mut point = CGPoint::new(0.0, 0.0);
+        let mut dimensions = CGSize::new(0.0, 0.0);
+        if ffi::AXValueGetValue(
+            position.as_CFTypeRef(),
+            1,
+            (&mut point as *mut CGPoint).cast::<c_void>(),
+        ) == 0
+            || ffi::AXValueGetValue(
+                size.as_CFTypeRef(),
+                2,
+                (&mut dimensions as *mut CGSize).cast::<c_void>(),
+            ) == 0
+        {
+            return None;
+        }
+        Some(CGPoint::new(
+            point.x + dimensions.width / 2.0,
+            point.y + dimensions.height / 2.0,
+        ))
+    }
+}
 // Physical ANSI positions, matching the Windows backend's unshifted bindings.
 // Caps Lock press/release events come from IOHIDManager rather than Quartz flagsChanged.
 const KEYS: &[(u16, &str)] = &[
@@ -252,12 +318,6 @@ const KEYS: &[(u16, &str)] = &[
     (125, "down"),
     (126, "up"),
 ];
-fn native_error() -> String {
-    // Native diagnostics are static, NUL-terminated strings owned by the backend.
-    unsafe { CStr::from_ptr(kb_error()) }
-        .to_string_lossy()
-        .into_owned()
-}
 fn key_name(code: u16) -> Option<&'static str> {
     KEYS.iter()
         .find(|(key, _)| *key == code)
