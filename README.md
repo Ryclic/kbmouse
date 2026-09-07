@@ -37,6 +37,44 @@ Caps Lock longer than `leader_tap_ms` without using it does nothing on release.
 
 All controls are configurable.
 
+## Install a release
+
+- **macOS:** open the DMG and drag **kbmouse.app** into **Applications**. Launch it
+  there and grant Accessibility and Input Monitoring permissions. Quit kbmouse
+  and remove the app from Applications to uninstall; configuration is preserved.
+- **Windows:** run the `-setup.exe` installer. It installs for your user, creates
+  a Start menu shortcut, and optionally a desktop shortcut. Uninstall through
+  Windows Settings → Apps. Quit kbmouse through the tray before reinstalling.
+- **Linux (X11):** extract the `.tar.gz` release and run `./install.sh`. The app
+  installs in `~/.local/lib/kbmouse`, with a launcher in `~/.local/bin` and an
+  application-menu entry. Uninstall using `~/.local/lib/kbmouse/uninstall.sh`.
+  Configuration is preserved. No root privileges are needed.
+
+Portable archives also contain the executable (or the complete macOS app).
+
+### Build installation packages
+
+Packaging requires Python 3.9+. Build the target first, then run:
+
+```sh
+cargo build --release --target aarch64-apple-darwin
+python3 scripts/package.py --target aarch64-apple-darwin --installer
+```
+
+Use `x86_64-apple-darwin` for Intel Macs, `x86_64-pc-windows-msvc` for Windows,
+or `x86_64-unknown-linux-gnu` for Linux. Outputs go to `dist/`. Windows installer
+builds require Inno Setup 6 (`iscc`); macOS DMG builds require Apple's Command
+Line Tools. Build each installer on its own operating system. Linux archives
+include the installer and uninstaller scripts.
+
+For an existing native `cargo build --release`, add
+`--binary target/release/kbmouse` (or `kbmouse.exe` on Windows).
+Local Mac packages are ad-hoc signed for testing. For public distribution, use
+`--sign-identity "Developer ID Application: ..." --notary-profile PROFILE` with
+credentials previously stored using `xcrun notarytool store-credentials`.
+The packaging script signs and notarizes the app before archiving it, and also
+signs/notarizes the DMG. Local ad-hoc packages are not notarized releases.
+
 ## Build
 
 Install a current stable Rust toolchain, then:
