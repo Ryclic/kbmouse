@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      KBMOUSE_UPDATE_PUBLIC_KEY: ${{ vars.KBMOUSE_UPDATE_PUBLIC_KEY }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Validate release version and public key
+        run: |
+          python - <<'PY'
+          import os, tomllib
+          with open('Cargo.toml', 'rb') as f:
+              version = tomllib.load(f)['package']['version']
+          assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Tag must match Cargo.toml version'
+          key = bytes.fromhex(os.environ['KBMOUSE_UPDATE_PUBLIC_KEY'])
+          assert len(key) == 32 and any(key), 'Configure KBMOUSE_UPDATE_PUBLIC_KEY repository variable'
+          PY
+      - run: cargo test --locked
+      - run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Prepare Apple signing and notarization
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          test -n "$CERTIFICATE" && test -n "$SIGN_IDENTITY" && test "$SIGN_IDENTITY" != '-'
+          test -n "$APPLE_ID" && test -n "$APPLE_APP_PASSWORD" && test -n "$APPLE_TEAM_ID"
+          KEYCHAIN="$RUNNER_TEMP/kbmouse-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security default-keychain -d user -s "$KEYCHAIN"
+          xcrun notarytool store-credentials kbmouse-ci --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+      - name: Package macOS app, signed DMG, and update archive
+        if: runner.os == 'macOS'
+        env:
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: python scripts/package.py --target '${{ matrix.target }}' --installer --sign-identity "$SIGN_IDENTITY" --notary-profile kbmouse-ci
+      - name: Package Windows or Linux
+        if: runner.os != 'macOS'
+        run: python scripts/package.py --target '${{ matrix.target }}' --installer
+      - name: Sign and verify update archives
+        env:
+          KBMOUSE_UPDATE_SIGNING_KEY: ${{ secrets.KBMOUSE_UPDATE_SIGNING_KEY }}
+        run: |
+          shopt -s nullglob
+          archives=(dist/*.tar.gz dist/*.zip)
+          cargo run --locked --example release -- sign "${archives[@]}"
+      - name: Remove temporary Apple credentials
+        if: always() && runner.os == 'macOS'
+        run: |
+          security default-keychain -d user -s login.keychain-db
+          if test -f "$RUNNER_TEMP/kbmouse-signing.keychain-db"; then
+            security delete-keychain "$RUNNER_TEMP/kbmouse-signing.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/certificate.p12"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Create draft release with all platforms
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --draft --title "kbmouse $TAG" --generate-notes dist/*

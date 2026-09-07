@@ -337,3 +337,67 @@ the app out of the DMG before updating; use `~/Applications` if `/Applications`
 is not writable. A development build without `KBMOUSE_UPDATE_PUBLIC_KEY` set at
 compile time has updates disabled. This value is the signing key's 64-character
 hexadecimal public key, never the private signing key.
+
+## Publishing releases
+
+The release workflow builds Linux x64, Windows x64, and both Mac architectures
+when a `vVERSION` tag is pushed. The tag must match `Cargo.toml`. It creates a
+**draft GitHub release** containing installers and signed update archives after
+all four builds succeed. Review the draft, then publish it; only published stable
+releases become available in the app. Windows installers currently have no
+Authenticode signature, so Windows may show an unknown-publisher warning.
+
+One-time repository setup:
+
+1. Generate an update signing key locally, in the ignored `.release` directory:
+   ```sh
+   mkdir -p .release
+   cargo run --locked --example release -- keygen .release/private.key
+   ```
+   The command prints the public key. Save it as the GitHub Actions repository
+   **variable** `KBMOUSE_UPDATE_PUBLIC_KEY`. Store the contents of the private file
+   as the repository **secret** `KBMOUSE_UPDATE_SIGNING_KEY`. Keep a secure backup;
+   future releases must use the same key so installed apps can verify them.
+   Never commit the private key. On Windows, keep the key in a directory whose
+   permissions limit access to your account.
+2. For public Mac builds, configure these Actions **secrets**:
+
+   | Secret | Value |
+   | --- | --- |
+   | `MACOS_CERTIFICATE_P12` | Base64-encoded Developer ID Application certificate and private key exported as `.p12` |
+   | `MACOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
+   | `MACOS_SIGN_IDENTITY` | Full Developer ID Application signing identity |
+   | `APPLE_ID` | Apple Developer account email |
+   | `APPLE_APP_PASSWORD` | App-specific password used by notarytool |
+   | `APPLE_TEAM_ID` | Apple Developer team ID |
+
+   The workflow uses an ephemeral keychain, signs and notarizes the app and DMG,
+   staples their tickets, and then signs the update archive. Missing credentials
+   fail the release build. See Apple's
+   [notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)
+   for credential setup.
+3. Increase the package version and refresh `Cargo.lock`, commit, then push a
+   matching tag (for example, `v0.2.0`). Publish the resulting draft after reviewing
+   its installers. Do not rename signed update archives: their signatures include
+   their exact filenames.
+
+For local signed builds, export `KBMOUSE_UPDATE_PUBLIC_KEY` before building,
+package with `scripts/package.py`, then set `KBMOUSE_UPDATE_SIGNING_KEY` and run:
+
+```sh
+cargo run --locked --example release -- sign dist/kbmouse-VERSION-TARGET.tar.gz
+# Windows uses the .zip archive instead.
+```
+
+The helper checks that the private key matches the public key and verifies each
+signed archive. It is release tooling only; private-key handling is not part of
+the shipped app. The workflow's Linux builds use Ubuntu 22.04 (glibc 2.35 or later).
+
+Release-tool checks:
+
+```sh
+cargo test --locked --all-targets
+cargo build --locked --example release
+python3 scripts/test_packaging.py
+python3 scripts/test_release.py
+```

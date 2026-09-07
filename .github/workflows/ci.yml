@@ -16,5 +16,11 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
-      - run: cargo test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cargo test --locked
+      - run: cargo build --locked --example release
+      - run: python scripts/test_packaging.py
+      - run: python scripts/test_release.py
       - run: cargo clippy --all-targets -- -D warnings

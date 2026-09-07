@@ -9,6 +9,7 @@ import package
 
 
 class PackagingTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "Linux shell installer runs on Unix")
     def test_linux_install_and_uninstall_preserve_config(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
