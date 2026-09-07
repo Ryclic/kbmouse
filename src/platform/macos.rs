@@ -345,14 +345,9 @@ pub fn show_startup_error(message: &str) {
         app.activateIgnoringOtherApps(true);
         let alert = NSAlert::new(mtm);
         alert.setMessageText(&NSString::from_str("kbmouse couldn’t start"));
-        let pane = if message.contains("Accessibility") {
-            Some("Privacy_Accessibility")
-        } else if message.contains("Input Monitoring") {
-            Some("Privacy_ListenEvent")
-        } else {
-            None
-        };
-        let details = if pane.is_some() {
+        let permission_error =
+            message.contains("Accessibility") || message.contains("Input Monitoring");
+        let details = if permission_error {
             format!(
                 "{message}\n\n\
                  Caps Lock capture requires BOTH Accessibility and Input Monitoring. \
@@ -369,18 +364,25 @@ pub fn show_startup_error(message: &str) {
             message.to_owned()
         };
         alert.setInformativeText(&NSString::from_str(&details));
-        if pane.is_some() {
-            alert.addButtonWithTitle(&NSString::from_str("Open System Settings"));
+        if permission_error {
+            alert.addButtonWithTitle(&NSString::from_str("Open Accessibility"));
+            alert.addButtonWithTitle(&NSString::from_str("Open Input Monitoring"));
         }
         alert.addButtonWithTitle(&NSString::from_str("Quit"));
-        if alert.runModal() == 1000
-            && let Some(pane) = pane
-        {
+        loop {
+            let response = alert.runModal();
+            let pane = match (permission_error, response) {
+                (true, 1000) => "Privacy_Accessibility",
+                (true, 1001) => "Privacy_ListenEvent",
+                _ => break,
+            };
             let _ = std::process::Command::new("/usr/bin/open")
                 .arg(format!(
                     "x-apple.systempreferences:com.apple.preference.security?{pane}"
                 ))
                 .spawn();
+            // Keep the dialog available so both permission pages can be opened
+            // before quitting and relaunching with the new grants.
         }
     });
 }
