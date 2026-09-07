@@ -729,6 +729,14 @@ impl eframe::App for SettingsApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
 
+        #[cfg(target_os = "macos")]
+        if !self.quitting && ctx.input(|input| input.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            // Keep the window in the Dock so settings can be restored without
+            // hiding the entire app (which would also hide the hint overlay).
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+
         self.sidebar(root);
         egui::Panel::bottom("actions")
             .frame(
@@ -753,6 +761,17 @@ impl eframe::App for SettingsApp {
                             .clicked()
                         {
                             self.save();
+                        }
+                        #[cfg(target_os = "macos")]
+                        if ui
+                            .add_enabled(
+                                !self.updater.installing(),
+                                egui::Button::new("Quit kbmouse"),
+                            )
+                            .clicked()
+                        {
+                            self.quitting = true;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                         if ui.button("Reset defaults").clicked() {
                             self.draft = Config::default();

@@ -410,3 +410,7 @@ Open System Settings → Privacy & Security and enable **kbmouse** under both
 **Accessibility** and **Input Monitoring**, then reopen kbmouse. Use the `+` button
 to add `/Applications/kbmouse.app` if it is missing. Bundle startup errors now show
 a dialog instead of disappearing into Finder's hidden terminal output.
+
+On macOS, clicking the settings window's red close button minimizes it to the Dock
+while kbmouse keeps running. Click the minimized window in the Dock to restore
+settings. Use **Quit kbmouse** in settings to stop keyboard capture and exit.
