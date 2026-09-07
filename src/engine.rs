@@ -465,7 +465,7 @@ impl Engine {
         Action::Batch(actions)
     }
 
-    fn cancel(&mut self) -> Action {
+    pub(crate) fn cancel(&mut self) -> Action {
         self.mode = Mode::Idle;
         self.reset_movement();
         self.transient_normal = false;
@@ -547,6 +547,7 @@ mod tests {
 
     fn engine() -> Engine {
         let config = Config {
+            leader: "capslock".into(),
             alphabet: "ab".into(),
             grid_rows: Some(2),
             grid_cols: Some(2),

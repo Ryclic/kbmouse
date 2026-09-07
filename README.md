@@ -4,13 +4,14 @@
   <img src="assets/logo.png" alt="kbmouse logo" width="160">
 </p>
 
-`kbmouse` is a small keyboard-driven virtual mouse for Windows and X11 Linux.
+`kbmouse` is a small keyboard-driven virtual mouse for Windows, macOS, and X11 Linux.
 Tap Caps Lock, type the label shown over a screen region, and the pointer jumps
 there. It is inspired by [warpd](https://github.com/rvaiya/warpd).
 
 This repository is a beta. Windows is the primary platform. The platform-neutral
 engine and X11 backend are tested on Linux; the Win32 backend must still be
-manually exercised on a Windows desktop before a production release.
+manually exercised on a Windows desktop before a production release. The macOS
+backend also needs the desktop checks below before a production release.
 
 ## Controls
 
@@ -71,6 +72,48 @@ cargo build --release --target x86_64-pc-windows-gnu
 
 The result is `target/x86_64-pc-windows-gnu/release/kbmouse.exe`.
 
+### macOS
+
+Build natively on Apple Silicon or Intel with Rust and Apple's Command Line Tools:
+
+```sh
+xcode-select --install  # only if the tools are not already installed
+cargo build --release
+./target/release/kbmouse
+```
+
+The build compiles and links a small Objective-C backend into the executable;
+there is no helper process or additional runtime to install. Cross-compilation
+from Linux to macOS is not supported by this build script.
+
+Before running, grant **Accessibility** and **Input Monitoring** access to
+kbmouse (or the terminal launching it) under **System Settings → Privacy &
+Security**. Restart kbmouse after changing permissions. Input Monitoring is
+required for the physical Caps Lock press/release events used by tap-and-hold
+control; Accessibility is required to capture keys and control the mouse.
+Startup reports which permission is missing.
+
+The default leader is **Caps Lock**, just like Windows and Linux. Tap it for the
+grid, or hold it for momentary mouse control. No key remapping or third-party
+utility is required. The backend observes raw keyboard HID values for physical
+press/release and separately suppresses the macOS logical Caps Lock toggle,
+preserving the lock state from when capture started. Other modifier keys keep
+their normal behavior. If Caps Lock has already been remapped by another utility,
+remove that remap before using it as the native leader.
+
+If an earlier build created your configuration with `leader = "f9"`, choose
+**Caps Lock** in Settings → General → Leader key and save, or change the config
+to `leader = "capslock"` and restart. Existing explicit settings are preserved.
+F9 remains an optional leader; only Caps Lock needs raw HID Input Monitoring.
+
+The overlay is transparent, does not take focus, and ignores mouse clicks.
+Coordinates and movement distances use macOS screen points, including on Retina
+displays. The focused window selects the monitor, with the pointer's monitor as
+a fallback; `span_all_monitors` covers the desktop. Bindings use physical ANSI
+key positions, so non-US keyboard layouts may show different key legends.
+Closing settings exits kbmouse and releases held mouse buttons. `--hint` also
+works without opening settings. Secure Input can prevent global keyboard capture.
+
 ### Linux
 
 The beta Linux backend requires an X11 session and the XTest and XFixes server
@@ -89,7 +132,8 @@ kbmouse [--hint] [--config PATH] [--verbose]
 - `--verbose` enables debug logs.
 
 On first launch, kbmouse creates `%APPDATA%\kbmouse\config.toml` on Windows or
-`~/.config/kbmouse/config.toml` on Linux.
+`~/.config/kbmouse/config.toml` on Linux. On macOS it creates
+`~/Library/Application Support/kbmouse/config.toml`.
 
 ## Settings window and tray
 
@@ -106,7 +150,7 @@ preset updates the editable direction bindings.
 On Windows, closing the settings window hides it instead of stopping kbmouse.
 Left-click the kbmouse notification-area icon to reopen settings. Right-click it
 for the menu containing the Quit command.
-On Linux, closing the window exits the application.
+On Linux and macOS, closing the window exits the application.
 
 ## Example configuration
 
@@ -193,6 +237,22 @@ pointer travels beyond the configured snap radius.
 - Force-terminate kbmouse while the overlay is open. Windows must remove the hook
   and normal keyboard behavior must return.
 
+### macOS
+
+- Verify permission-denied startup for Accessibility and Input Monitoring,
+  then enable both and restart.
+- In TextEdit, tap Caps Lock, select a cell, click, and resume typing. The overlay must
+  not steal focus or intercept clicks; idle keystrokes must reach TextEdit.
+- Hold Caps Lock for movement and dragging; verify release, Escape, closing settings,
+  and saving settings all release the mouse button.
+- Verify middle/right clicks, both scroll directions, subdivision, and `--hint`.
+- Test Retina and non-Retina displays, displays above/left of the primary,
+  `span_all_monitors`, Spaces, and full-screen applications.
+- Test repeated Caps Lock taps and holds with the lock initially both off and on;
+  verify ordinary typing retains the initial lock state and Caps Lock works normally
+  after exiting. Check built-in and external keyboards, including unplugging a
+  keyboard while the leader is held.
+
 ### X11
 
 - Confirm the XTest and XFixes extensions are present (`xdpyinfo -queryExtensions`).
@@ -204,7 +264,7 @@ pointer travels beyond the configured snap radius.
 - Editing `config.toml` manually still requires a restart; GUI saves apply live.
 - The tray icon is currently Windows-only; there is no installer yet.
 - Magnetized cursor is Windows-only; Linux requires a future AT-SPI2 backend.
-- No Wayland or macOS backend.
+- No Wayland backend. macOS magnet snapping is not implemented.
 - X11 uses the server's core bitmap font and a solid backdrop.
 - Multi-monitor selection on X11 currently uses the root screen as one desktop.
 - Key movement uses operating-system key repeat rather than time-based animation.

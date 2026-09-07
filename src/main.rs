@@ -51,6 +51,8 @@ fn try_main() -> Result<()> {
     let config_path = args.config.unwrap_or(Config::path()?);
     let config = Config::load_or_create(&config_path)?;
     tracing::info!(path = %config_path.display(), "loaded configuration");
+    #[cfg(target_os = "macos")]
+    platform::initialize(args.hint);
     if args.hint {
         let backend = platform::NativeBackend::new(&config)?;
         return runtime::run(backend, config, true, crossbeam_channel::never());
@@ -59,7 +61,7 @@ fn try_main() -> Result<()> {
     let runtime_config = config.clone();
     let (config_tx, config_rx) = crossbeam_channel::unbounded();
     let (startup_tx, startup_rx) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new()
+    let runtime_thread = std::thread::Builder::new()
         .name("kbmouse-runtime".into())
         .spawn(
             move || match platform::NativeBackend::new(&runtime_config) {
@@ -78,5 +80,9 @@ fn try_main() -> Result<()> {
         .recv()
         .map_err(|_| anyhow::anyhow!("input runtime stopped during startup"))?
         .map_err(anyhow::Error::msg)?;
-    gui::run(config_path, config, config_tx)
+    let result = gui::run(config_path, config, config_tx);
+    runtime_thread
+        .join()
+        .map_err(|_| anyhow::anyhow!("input runtime panicked"))?;
+    result
 }

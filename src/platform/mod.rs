@@ -36,5 +36,10 @@ mod windows;
 #[cfg(windows)]
 pub use windows::NativeBackend;
 
-#[cfg(not(any(windows, target_os = "linux")))]
-compile_error!("kbmouse currently supports Windows and Linux only");
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{NativeBackend, initialize};
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+compile_error!("kbmouse currently supports Windows, Linux, and macOS");

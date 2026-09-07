@@ -1,15 +1,15 @@
 use anyhow::{Result, bail};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use anyhow::Context;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub struct SingleInstance {
     _listener: std::os::unix::net::UnixListener,
     path: std::path::PathBuf,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl SingleInstance {
     pub fn acquire() -> Result<Self> {
         use std::os::unix::net::{UnixListener, UnixStream};
@@ -30,7 +30,7 @@ impl SingleInstance {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl Drop for SingleInstance {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
