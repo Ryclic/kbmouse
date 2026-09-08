@@ -48,12 +48,16 @@ def mac_bundle(stage, binary, release, identity):
     }
     with (contents / "Info.plist").open("wb") as dest:
         plistlib.dump(info, dest)
+    # Render the current vector source, so stale preview PNGs cannot reach releases.
+    rendered_icon = stage / "logo.png"
+    run("swift", "-module-cache-path", ROOT / "target/swift-module-cache",
+        ROOT / "scripts/render-logo.swift", ROOT / "assets/logo.svg", rendered_icon, "1024")
     iconset = stage / "kbmouse.iconset"
     iconset.mkdir()
     for size in (16, 32, 128, 256, 512):
         for scale in (1, 2):
             suffix = "@2x" if scale == 2 else ""
-            run("sips", "-z", size * scale, size * scale, ROOT / "assets/logo.png",
+            run("sips", "-z", size * scale, size * scale, rendered_icon,
                 "--out", iconset / f"icon_{size}x{size}{suffix}.png")
     run("iconutil", "-c", "icns", iconset, "-o", resources / "kbmouse.icns")
     args = ["codesign", "--force", "--sign", identity]
@@ -121,7 +125,7 @@ def package(target, binary, out, installer=False, identity="-", notary_profile=N
                         info.mode = 0o755
                     return info
                 tar.add(binary, "kbmouse", filter=executable)
-                tar.add(ROOT / "assets/logo.png", "logo.png")
+                tar.add(ROOT / "assets/logo.svg", "logo.svg")
                 tar.add(ROOT / "README.md", "README.md")
                 for script in ("install.sh", "uninstall.sh"):
                     tar.add(ROOT / "packaging/linux" / script, script, filter=executable)

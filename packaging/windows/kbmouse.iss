@@ -19,7 +19,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 AppMutex=Local\kbmouse-single-instance
 CloseApplications=yes
 RestartApplications=no
-UninstallDisplayIcon={app}\kbmouse.exe
+SetupIconFile=..\..\assets\logo.ico
+UninstallDisplayIcon={app}\logo.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -27,9 +28,10 @@ DisableProgramGroupPage=yes
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 [Files]
+Source: "..\..\assets\logo.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinaryPath}"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
-Name: "{group}\kbmouse"; Filename: "{app}\kbmouse.exe"
-Name: "{autodesktop}\kbmouse"; Filename: "{app}\kbmouse.exe"; Tasks: desktopicon
+Name: "{group}\kbmouse"; Filename: "{app}\kbmouse.exe"; IconFilename: "{app}\logo.ico"
+Name: "{autodesktop}\kbmouse"; Filename: "{app}\kbmouse.exe"; IconFilename: "{app}\logo.ico"; Tasks: desktopicon
 [Run]
 Filename: "{app}\kbmouse.exe"; Description: "Launch kbmouse"; Flags: nowait postinstall skipifsilent

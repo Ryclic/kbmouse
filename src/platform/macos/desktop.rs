@@ -57,12 +57,11 @@ impl Desktop {
         let quit_item = MenuItem::new("Quit kbmouse", true, None);
         menu.append(&settings)?;
         menu.append(&quit_item)?;
-        let image =
-            image::load_from_memory(include_bytes!("../../../assets/logo.png"))?.into_rgba8();
-        let image = image::imageops::resize(&image, 22, 22, image::imageops::FilterType::Lanczos3);
+        let image = crate::branding::pixels(include_bytes!("../../../assets/logo-mark.svg"), 72)?;
         let icon = TrayIconBuilder::new()
             .with_tooltip("kbmouse")
-            .with_icon(tray_icon::Icon::from_rgba(image.into_raw(), 22, 22)?)
+            .with_icon_as_template(true)
+            .with_icon(tray_icon::Icon::from_rgba(image, 72, 72)?)
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false)
             .build()

@@ -31,6 +31,9 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual((home / ".local/bin/kbmouse").resolve(), installed.resolve())
             desktop = home / ".local/share/applications/kbmouse.desktop"
             self.assertIn(f'Exec="{installed}"', desktop.read_text())
+            icon = home / ".local/share/icons/kbmouse.svg"
+            self.assertEqual(icon.read_bytes(), (package.ROOT / "assets/logo.svg").read_bytes())
+            self.assertIn(f"Icon={icon}", desktop.read_text())
             subprocess.run(["sh", str(home / ".local/lib/kbmouse/uninstall.sh")], env=env, check=True)
             self.assertFalse(installed.exists())
             self.assertFalse(desktop.exists())

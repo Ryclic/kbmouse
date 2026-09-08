@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">kbmouse</title>
+  <desc id="desc">A faithful vector redraw of the original diagonal mouse logo, with separate mouse buttons, a scroll wheel, one long key, four small keys, and a curved side highlight.</desc>
+  <g stroke="#181A1D" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer shell. -->
+    <path stroke-width="28" d="M444 64C548 58 610 108 686 194L833 362C910 450 949 531 942 636C932 787 835 920 706 929C576 939 478 876 395 784L174 545C98 461 67 387 87 300C109 208 172 144 265 102C327 74 384 60 444 64Z"/>
+    <!-- Short division at the front of the mouse. -->
+    <path stroke-width="21" d="M252 122L303 154"/>
+    <!-- Left and right mouse buttons. -->
+    <path stroke-width="16" d="M215 185C223 177 233 178 243 187L379 311C389 321 389 331 378 341L276 422C266 432 257 433 245 426C197 402 155 369 140 332C122 285 150 236 215 185Z"/>
+    <path stroke-width="16" d="M357 108C423 85 489 87 544 120C575 138 602 165 625 193C635 203 631 211 619 216L528 257C518 262 509 262 500 253L353 128C343 119 344 112 357 108Z"/>
+    <!-- Sculpted scroll wheel. -->
+    <path fill="#181A1D" stroke="none" d="M306 179C330 161 348 157 370 170C396 186 425 217 439 248C449 269 443 282 424 289C412 294 402 288 396 275C376 235 348 209 311 198C300 195 296 187 306 179Z"/>
+    <!-- Curved side-wall highlight. -->
+    <path fill="#181A1D" stroke="none" d="M91 348C99 407 129 447 188 489L327 592C376 629 398 672 430 736C481 841 573 903 677 907C565 891 502 824 462 744C431 680 411 632 353 582L204 461C145 414 113 388 91 348Z"/>
+    <!-- Original long key and four small keys, preserving their perspective. -->
+    <g stroke-width="16">
+      <path d="M463 355L654 255Q673 242 686 257L725 303Q741 322 721 332L529 431Q512 441 499 426L461 382Q449 367 463 355Z"/>
+      <path d="M340 444L397 397Q409 386 422 399L465 447Q476 460 462 471L403 519Q392 529 379 515L337 467Q329 456 340 444Z"/>
+      <path d="M447 531L503 487Q515 477 527 490L582 541Q594 556 580 567L512 615Q499 625 485 611L441 562Q432 548 447 531Z"/>
+      <path d="M575 445L634 412Q649 402 660 416L706 469Q718 482 703 493L648 529Q637 536 625 525L573 471Q562 456 575 445Z"/>
+      <path d="M704 382L751 356Q766 347 777 361L820 408Q833 425 817 435L772 462Q757 471 746 457L702 410Q689 393 704 382Z"/>
+    </g>
+  </g>
+</svg>

@@ -1,6 +1,8 @@
 use crate::config::{Config, LabelStyle, PostHint};
 use crate::updater::{Status as UpdateStatus, Updater};
-use anyhow::{Context, Result};
+#[cfg(windows)]
+use anyhow::Context;
+use anyhow::Result;
 use eframe::egui::{self, Color32, RichText};
 use std::{
     path::PathBuf,
@@ -32,7 +34,7 @@ pub fn run(
     config_tx: crossbeam_channel::Sender<Config>,
     executable: PathBuf,
 ) -> Result<bool> {
-    let logo = logo_pixels(64)?;
+    let logo = logo_pixels(256)?;
     let window_logo = logo.clone();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -41,8 +43,8 @@ pub fn run(
             .with_title("kbmouse settings")
             .with_icon(egui::IconData {
                 rgba: window_logo,
-                width: 64,
-                height: 64,
+                width: 256,
+                height: 256,
             }),
         ..Default::default()
     };
@@ -103,7 +105,7 @@ impl SettingsApp {
         creation.egui_ctx.set_zoom_factor(1.2);
         let logo = creation.egui_ctx.load_texture(
             "kbmouse-logo",
-            egui::ColorImage::from_rgba_unmultiplied([64, 64], &logo),
+            egui::ColorImage::from_rgba_unmultiplied([256, 256], &logo),
             egui::TextureOptions::LINEAR,
         );
 
@@ -948,13 +950,7 @@ fn apply_movement_preset(config: &mut Config, preset: MovementPreset) {
 }
 
 fn logo_pixels(size: u32) -> Result<Vec<u8>> {
-    let decoded = image::load_from_memory(include_bytes!("../assets/logo.png"))
-        .context("failed to decode embedded logo.png")?
-        .into_rgba8();
-    Ok(
-        image::imageops::resize(&decoded, size, size, image::imageops::FilterType::Lanczos3)
-            .into_raw(),
-    )
+    crate::branding::pixels(include_bytes!("../assets/logo.svg"), size)
 }
 
 #[cfg(windows)]
@@ -990,7 +986,7 @@ impl TrayState {
 
 #[cfg(windows)]
 fn tray_icon_image() -> Result<tray_icon::Icon> {
-    let size = 32u32;
+    let size = 64u32;
     tray_icon::Icon::from_rgba(logo_pixels(size)?, size, size)
         .context("failed to create tray icon image")
 }

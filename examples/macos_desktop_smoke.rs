@@ -1,5 +1,9 @@
-//! Run `cargo run --example macos_desktop_smoke` on macOS to check native startup
-//! without keyboard-capture permissions. The window closes automatically.
+#[cfg(target_os = "macos")]
+#[path = "../src/branding.rs"]
+mod branding;
+
+// Run `cargo run --example macos_desktop_smoke` on macOS to check native startup
+// without keyboard-capture permissions. The window closes automatically.
 #[cfg(target_os = "macos")]
 #[path = "../src/platform/macos/desktop.rs"]
 mod desktop;

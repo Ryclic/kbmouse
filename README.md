@@ -1,7 +1,10 @@
 # kbmouse
 
 <p align="center">
-  <img src="assets/logo.png" alt="kbmouse logo" width="160">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg">
+    <img src="assets/logo-mark.svg" alt="kbmouse logo" width="160">
+  </picture>
 </p>
 
 `kbmouse` is a small keyboard-driven virtual mouse for Windows, macOS, and X11 Linux.
