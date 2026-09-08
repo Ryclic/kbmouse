@@ -2,13 +2,10 @@
 use anyhow::{Context, Result};
 use eframe::egui;
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{DeclaredClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-    NSApplicationTerminateReply,
-};
-use objc2_foundation::{NSObject, NSObjectProtocol};
+use objc2::runtime::AnyObject;
+use objc2::{DeclaredClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+use objc2_foundation::{NSAppleEventManager, NSObject, NSObjectProtocol};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -26,31 +23,27 @@ fn show(ctx: &egui::Context) {
 }
 struct State {
     ctx: egui::Context,
-    quit: Arc<AtomicBool>,
 }
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[ivars = State]
-    struct Delegate;
-    unsafe impl NSObjectProtocol for Delegate {}
-    unsafe impl NSApplicationDelegate for Delegate {
-        #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
-        fn reopen(&self, _app: &NSApplication, _visible: bool) -> bool {
+    struct ReopenHandler;
+    unsafe impl NSObjectProtocol for ReopenHandler {}
+    impl ReopenHandler {
+        #[unsafe(method(handleReopen:withReplyEvent:))]
+        fn reopen(&self, _event: &AnyObject, _reply: &AnyObject) {
             show(&self.ivars().ctx);
-            false
-        }
-        #[unsafe(method(applicationShouldTerminate:))]
-        fn terminate(&self, _app: &NSApplication) -> NSApplicationTerminateReply {
-            self.ivars().quit.store(true, Ordering::Release);
-            show(&self.ivars().ctx);
-            NSApplicationTerminateReply::TerminateCancel
         }
     }
 );
+// The standard Apple event sent by Launch Services when an app is reopened.
+const CORE_EVENT_CLASS: u32 = u32::from_be_bytes(*b"aevt");
+const REOPEN_APPLICATION: u32 = u32::from_be_bytes(*b"rapp");
+
 pub struct Desktop {
     _icon: tray_icon::TrayIcon,
-    _delegate: Retained<Delegate>,
+    _reopen_handler: Retained<ReopenHandler>,
     quit: Arc<AtomicBool>,
 }
 impl Desktop {
@@ -99,21 +92,28 @@ impl Desktop {
         }));
         let mtm =
             MainThreadMarker::new().context("menu bar must be initialized on the main thread")?;
-        let delegate: Retained<Delegate> = unsafe {
+        let handler: Retained<ReopenHandler> = unsafe {
             msg_send![
-                super(Delegate::alloc(mtm).set_ivars(State {
-                    ctx: ctx.clone(),
-                    quit: quit.clone()
-                })),
+                super(ReopenHandler::alloc(mtm).set_ivars(State { ctx: ctx.clone() })),
                 init
             ]
         };
         let app = NSApplication::sharedApplication(mtm);
-        app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        // Do not replace NSApplication's delegate: winit owns and downcasts it.
+        // Handle only Launch Services' reopen event through Apple's event manager.
+        unsafe {
+            NSAppleEventManager::sharedAppleEventManager()
+                .setEventHandler_andSelector_forEventClass_andEventID(
+                    &handler,
+                    sel!(handleReopen:withReplyEvent:),
+                    CORE_EVENT_CLASS,
+                    REOPEN_APPLICATION,
+                );
+        }
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
         Ok(Self {
             _icon: icon,
-            _delegate: delegate,
+            _reopen_handler: handler,
             quit,
         })
     }
@@ -123,8 +123,7 @@ impl Desktop {
 }
 impl Drop for Desktop {
     fn drop(&mut self) {
-        if let Some(mtm) = MainThreadMarker::new() {
-            NSApplication::sharedApplication(mtm).setDelegate(None);
-        }
+        NSAppleEventManager::sharedAppleEventManager()
+            .removeEventHandlerForEventClass_andEventID(CORE_EVENT_CLASS, REOPEN_APPLICATION);
     }
 }

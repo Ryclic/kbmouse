@@ -24,3 +24,6 @@ jobs:
       - run: python scripts/test_packaging.py
       - run: python scripts/test_release.py
       - run: cargo clippy --all-targets -- -D warnings
+      - name: Check macOS menu bar startup
+        if: runner.os == 'macOS'
+        run: cargo run --locked --example macos_desktop_smoke

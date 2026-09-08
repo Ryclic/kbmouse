@@ -33,7 +33,7 @@ core-foundation = "0.9.4"
 core-graphics = { version = "0.23.2", features = ["highsierra"] }
 dispatch2 = "0.3.1"
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSDate", "NSDictionary", "NSString", "NSGeometry", "NSObject", "NSRunLoop"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-services", "NSAppleEventManager", "NSDate", "NSDictionary", "NSString", "NSGeometry", "NSObject", "NSRunLoop"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "std", "libc", "objc2-core-foundation",
     "NSAlert", "NSApplication", "NSResponder", "NSPanel", "NSWindow", "NSView", "NSControl",
