@@ -301,7 +301,7 @@ pointer travels beyond the configured snap radius.
 ## Known beta limitations
 
 - Editing `config.toml` manually still requires a restart; GUI saves apply live.
-- The tray icon is currently Windows-only.
+- The tray/menu bar icon is available on Windows and macOS.
 - Magnetized cursor is Windows-only; Linux requires a future AT-SPI2 backend.
 - No Wayland backend. macOS magnet snapping is not implemented.
 - X11 uses the server's core bitmap font and a solid backdrop.
@@ -411,6 +411,8 @@ Open System Settings → Privacy & Security and enable **kbmouse** under both
 to add `/Applications/kbmouse.app` if it is missing. Bundle startup errors now show
 a dialog instead of disappearing into Finder's hidden terminal output.
 
-On macOS, clicking the settings window's red close button minimizes it to the Dock
-while kbmouse keeps running. Click the minimized window in the Dock to restore
-settings. Use **Quit kbmouse** in settings to stop keyboard capture and exit.
+On macOS, kbmouse lives in the menu bar without a Dock icon. Clicking the settings
+window's red close button hides settings while keyboard capture keeps running.
+Left-click the menu bar icon or reopen kbmouse from Spotlight to restore settings.
+Right-click the icon for **Open settings** and **Quit kbmouse**. The Quit button in
+settings also stops keyboard capture and exits.

@@ -28,6 +28,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graph
 x11rb = { version = "0.14.0", features = ["randr", "xtest", "xfixes"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.24.2"
 core-foundation = "0.9.4"
 core-graphics = { version = "0.23.2", features = ["highsierra"] }
 dispatch2 = "0.3.1"

@@ -19,7 +19,9 @@ use objc2::rc::autoreleasepool;
 use objc2_app_kit::NSWorkspace;
 use std::{ffi::c_void, time::Duration};
 
+mod desktop;
 mod ffi;
+pub use desktop::Desktop;
 mod input;
 mod overlay;
 pub use overlay::initialize;

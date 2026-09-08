@@ -44,6 +44,7 @@ def mac_bundle(stage, binary, release, identity):
         "CFBundleIconFile": "kbmouse.icns",
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True,
+        "LSUIElement": True,
     }
     with (contents / "Info.plist").open("wb") as dest:
         plistlib.dump(info, dest)

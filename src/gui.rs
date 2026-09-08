@@ -78,6 +78,8 @@ struct SettingsApp {
     updater: Updater,
     restart_request: Arc<AtomicBool>,
     quitting: bool,
+    #[cfg(target_os = "macos")]
+    desktop: Option<crate::platform::Desktop>,
     #[cfg(windows)]
     tray: Option<TrayState>,
 }
@@ -115,8 +117,15 @@ impl SettingsApp {
             Ok(tray) => (Some(tray), "Settings loaded".to_owned(), false),
             Err(error) => (None, format!("Tray unavailable: {error}"), true),
         };
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let (status, status_error) = ("Settings loaded".to_owned(), false);
+
+        #[cfg(target_os = "macos")]
+        let (desktop, status, status_error) =
+            match crate::platform::Desktop::new(&creation.egui_ctx) {
+                Ok(desktop) => (Some(desktop), "Settings loaded".to_owned(), false),
+                Err(error) => (None, format!("Menu bar unavailable: {error}"), true),
+            };
 
         Self {
             config_path,
@@ -129,6 +138,8 @@ impl SettingsApp {
             updater: Updater::new(executable),
             restart_request,
             quitting: false,
+            #[cfg(target_os = "macos")]
+            desktop,
             #[cfg(windows)]
             tray,
         }
@@ -730,11 +741,26 @@ impl eframe::App for SettingsApp {
         }
 
         #[cfg(target_os = "macos")]
-        if !self.quitting && ctx.input(|input| input.viewport().close_requested()) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            // Keep the window in the Dock so settings can be restored without
-            // hiding the entire app (which would also hide the hint overlay).
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        {
+            if self
+                .desktop
+                .as_ref()
+                .is_some_and(|desktop| desktop.take_quit())
+            {
+                if self.updater.installing() {
+                    self.status = "Wait for update installation to finish before quitting.".into();
+                } else {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            if !self.quitting
+                && self.desktop.is_some()
+                && ctx.input(|input| input.viewport().close_requested())
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
         }
 
         self.sidebar(root);
